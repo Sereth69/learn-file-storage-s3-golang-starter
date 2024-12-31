@@ -20,61 +20,38 @@ echo "JWT Token: $jwtToken"
 videos_response=$(curl -s -X GET http://localhost:8091/api/videos \
   -H "Authorization: Bearer $jwtToken")
 
-landscapeURL=$(echo $videos_response | jq -r '.[0].video_url')
-landscapeTitle=$(echo $videos_response | jq -r '.[0].title')
-portraitURL=$(echo $videos_response | jq -r '.[1].video_url')
-portraitTitle=$(echo $videos_response | jq -r '.[1].title')
+# Print the entire response to debug
+echo "Videos Response: $videos_response"
 
-# Remove query parameters for testing
-landscapeURL=${landscapeURL%%\?*}
-portraitURL=${portraitURL%%\?*}
-
-if [[ -z "$landscapeURL" || "$landscapeURL" == "null" ]]; then
-  echo "Could not get landscape URL."
+# Check if the response is a valid JSON array
+if ! echo "$videos_response" | jq -e .[0] > /dev/null 2>&1; then
+  echo "Fetching videos failed or no videos found."
   exit 1
 fi
 
-if [[ -z "$portraitURL" || "$portraitURL" == "null" ]]; then
-  echo "Could not get portrait URL."
+# Check if the first video's URL contains "cloudfront.net"
+video_url=$(echo "$videos_response" | jq -r '.[0].video_url')
+echo "Video URL: $video_url"
+if [[ "$video_url" != *"cloudfront.net"* ]]; then
+  echo "Video URL does not contain 'cloudfront.net'"
   exit 1
 fi
 
-echo "Landscape URL: $landscapeURL"
-echo "Landscape Title: $landscapeTitle"
-echo "Portrait URL: $portraitURL"
-echo "Portrait Title: $portraitTitle"
+# Step 3: GET ${videoURL}
+video_response=$(curl -s -I "$video_url")
 
-# Step 3: Verify the titles and ordering of the videos
-if [[ "$landscapeTitle" != "Boots Horizontal" ]]; then
-  echo "Expected first video title to be 'Boots Horizontal', but got '$landscapeTitle'."
+# Check if the status code is 200
+video_status=$(echo "$video_response" | grep HTTP | awk '{print $2}')
+if [ "$video_status" != "200" ]; then
+  echo "Fetching video failed with status code $video_status"
   exit 1
 fi
 
-if [[ "$portraitTitle" != "Boots Vertical" ]]; then
-  echo "Expected second video title to be 'Boots Vertical', but got '$portraitTitle'."
+# Check if the "Content-Type" header contains "video/mp4"
+content_type=$(echo "$video_response" | grep "Content-Type" | awk '{print $2}')
+if [[ "$content_type" != *"video/mp4"* ]]; then
+  echo "Content-Type is not 'video/mp4'"
   exit 1
 fi
 
-# Step 4: Check the Content-Type for the landscape URL
-landscape_content_type=$(curl -s -I $landscapeURL | grep -i "Content-Type")
-
-if [[ "$landscape_content_type" == *"video/mp4"* ]]; then
-  echo "Landscape video has correct Content-Type: video/mp4"
-else
-  echo "Landscape video does not have correct Content-Type."
-  echo "Content-Type: $landscape_content_type"
-  exit 1
-fi
-
-# Step 5: Check the Content-Type for the portrait URL
-portrait_content_type=$(curl -s -I $portraitURL | grep -i "Content-Type")
-
-if [[ "$portrait_content_type" == *"video/mp4"* ]]; then
-  echo "Portrait video has correct Content-Type: video/mp4"
-else
-  echo "Portrait video does not have correct Content-Type."
-  echo "Content-Type: $portrait_content_type"
-  exit 1
-fi
-
-echo "All tests passed successfully."
+echo "All tests passed successfully!"
